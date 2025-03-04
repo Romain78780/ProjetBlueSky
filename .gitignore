@@ -1,0 +1,19 @@
+# Environnements virtuels
+venv/
+__pycache__/
+
+# Configurations PyCharm
+.idea/
+
+# Fichiers de logs et caches
+*.log
+*.pyc
+*.pyo
+*.pyd
+
+# Données sensibles
+.env
+config.json
+
+# Fichiers Jupyter Notebook checkpoints
+.ipynb_checkpoints/
