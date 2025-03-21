@@ -2,6 +2,13 @@ import re
 import nltk
 from nltk.corpus import stopwords
 
+# Vérifier et télécharger les stopwords si nécessaire
+try:
+    stop_words = set(stopwords.words("french"))
+except LookupError:
+    nltk.download('stopwords')
+    stop_words = set(stopwords.words("french"))
+
 # Assure-toi d'avoir téléchargé les stopwords (nltk.download("stopwords"))
 stop_words = set(stopwords.words("french"))
 
