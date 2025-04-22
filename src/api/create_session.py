@@ -1,38 +1,39 @@
+# src/api/create_session.py
+
+import os
 import requests
+from dotenv import load_dotenv
 
+# Charge les variables d'environnement depuis .env
+load_dotenv()
 
-def create_session(handle, password):
+def create_session(handle: str = None, password: str = None) -> str | None:
     """
     Crée une session Bluesky et renvoie le Bearer Token (accessJwt).
-
-    :param handle: Ton handle Bluesky (ex: "ton.handle.bsky.social") ou ton e-mail
-    :param password: Ton mot de passe Bluesky
-    :return: accessJwt (string) si succès, None si erreur
+    Si handle/password ne sont pas passés en argument, on les lit depuis .env.
     """
-    url = "https://bsky.social/xrpc/com.atproto.server.createSession"
-    payload = {
-        "identifier": "romain.vignard@supdevinci-edu.fr",  # handle ou email
-        "password": "ProjetBlueSkyM1"
-    }
+    # Priorité aux arguments, sinon on lit du .env
+    identifier = handle or os.getenv("BSKY_HANDLE")
+    pwd        = password or os.getenv("BSKY_PASSWORD")
 
-    response = requests.post(url, json=payload)
-
-    if response.status_code == 200:
-        data = response.json()
-        return data.get("accessJwt")  # On récupère le token d'accès
-    else:
-        print(f"❌ Erreur {response.status_code} : {response.text}")
+    if not identifier or not pwd:
+        print("❌ Veuillez définir BSKY_HANDLE et BSKY_PASSWORD dans votre .env ou les passer à la fonction")
         return None
 
+    url = "https://bsky.social/xrpc/com.atproto.server.createSession"
+    payload = {"identifier": identifier, "password": pwd}
+    resp = requests.post(url, json=payload)
+
+    if resp.status_code == 200:
+        return resp.json().get("accessJwt")
+    else:
+        print(f"❌ createSession failed [{resp.status_code}]: {resp.text}")
+        return None
 
 if __name__ == "__main__":
-    # Mets ici tes identifiants locaux (ne les partage pas publiquement !)
-    my_handle_or_email = "romain.vignard@supdevinci-edu.fr"  # Ou ton e-mail
-    my_password = "ProjetBlueSkyM1"
-
-    token = create_session(my_handle_or_email, my_password)
+    # Test rapide
+    token = create_session()
     if token:
-        print("Bearer Token récupéré avec succès !")
-        print("Access JWT :", token)
+        print("✅ Bearer Token récupéré :", token)
     else:
-        print("Impossible de récupérer le Bearer Token.")
+        print("❌ Échec de la récupération du token")
