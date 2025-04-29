@@ -11,7 +11,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 def main():
     # 1) Charger la table de faits
     df = pd.read_csv(
-        "data/processed/fact_table.csv",
+        "../data/processed/fact_table.csv",
         sep="|",
         quotechar='"'
     )
@@ -70,8 +70,8 @@ def main():
 
     # 7) Sauvegarde
     import joblib
-    os.makedirs("models", exist_ok=True)
-    joblib.dump(clf, "models/fake_news_clf.joblib")
+    os.makedirs("../models", exist_ok=True)
+    joblib.dump(clf, "../models/fake_news_clf.joblib")
     print("\n✅ Modèle entraîné sauvegardé dans models/fake_news_clf.joblib")
 
 if __name__ == "__main__":

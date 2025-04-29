@@ -8,21 +8,21 @@ import json
 import requests
 import spacy
 from langdetect import detect, DetectorFactory
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from api.create_session import create_session
-from api.extract_tweets import extract_tweets
-from api.cleaning import clean_text
 
 # -------------------------------------------------------------------
 # Configuration
 # -------------------------------------------------------------------
-ACTOR         = "andyrichter.co"            # handle dont tu veux l’historique
-MAX_TWEETS    = 250
-PAGE_LIMIT    = 100
+ACTOR          = "andyrichter.co"            # handle dont tu veux l’historique
+MAX_TWEETS     = 250
+PAGE_LIMIT     = 100
 
-PROJECT_ROOT  = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-RAW_CSV_PATH  = os.path.join(PROJECT_ROOT, "data", "processed", "tweets_all.csv")
-CLEAN_CSV_PATH= os.path.join(PROJECT_ROOT, "data", "processed", "tweets_clean.csv")
+PROJECT_ROOT   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+RAW_CSV_PATH   = os.path.join(PROJECT_ROOT, "data", "processed", "tweets_all.csv")
+CLEAN_CSV_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "tweets_clean.csv")
 
 DetectorFactory.seed = 0  # pour la reproductibilité de la détection de langue
 
@@ -67,7 +67,8 @@ def get_author_feed(token: str, actor: str, max_tweets: int) -> list[dict]:
     headers = {"Authorization": f"Bearer {token}"}
     while len(all_posts) < max_tweets:
         params = {"actor": actor, "limit": PAGE_LIMIT}
-        if cursor: params["cursor"] = cursor
+        if cursor:
+            params["cursor"] = cursor
         url = "https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed"
         resp = requests.get(url, headers=headers, params=params)
         if resp.status_code != 200:
@@ -76,10 +77,12 @@ def get_author_feed(token: str, actor: str, max_tweets: int) -> list[dict]:
         data = resp.json()
         feed = data.get("feed", [])
         print(f"Page récupérée: {len(feed)} posts (cursor={data.get('cursor')})")
-        if not feed: break
+        if not feed:
+            break
         all_posts.extend(feed)
         cursor = data.get("cursor")
-        if not cursor: break
+        if not cursor:
+            break
     return all_posts[:max_tweets]
 
 # -------------------------------------------------------------------
@@ -92,12 +95,45 @@ def extract_tweets(items: list[dict]) -> list[dict]:
         rec  = post.get("record", {})
         auth = post.get("author", {})
         tweets.append({
-            "uri": post.get("uri", ""),
-            "handle": auth.get("handle", ""),
-            "text": rec.get("text", ""),
+            "uri":       post.get("uri", ""),
+            "handle":    auth.get("handle", ""),
+            "text":      rec.get("text", ""),
             "createdAt": rec.get("createdAt", "")
         })
     return tweets
+
+# -------------------------------------------------------------------
+# Classification BERTweet
+# -------------------------------------------------------------------
+# on charge le modèle fine-tuné
+DEVICE    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+TOKENIZER = AutoTokenizer.from_pretrained(
+    os.path.join(PROJECT_ROOT, "models", "bertweet-fake-news"),
+    use_fast=True
+)
+MODEL     = AutoModelForSequenceClassification.from_pretrained(
+    os.path.join(PROJECT_ROOT, "models", "bertweet-fake-news")
+).to(DEVICE)
+MODEL.eval()
+
+def classify_text(text: str) -> tuple[int, float]:
+    """
+    renvoie (pred_label, fake_score)
+    pred_label: 1 = fake, 0 = vrai
+    fake_score: probabilité de la classe 'fake'
+    """
+    inputs = TOKENIZER(
+        text,
+        truncation=True,
+        padding="max_length",
+        max_length=96,
+        return_tensors="pt"
+    ).to(DEVICE)
+    with torch.no_grad():
+        logits = MODEL(**inputs).logits
+        probs  = torch.softmax(logits, dim=-1).cpu().squeeze().tolist()
+    # probs = [p_true, p_fake]
+    return (int(probs[1] > probs[0]), float(probs[1]))
 
 # -------------------------------------------------------------------
 # Sauvegarde CSV
@@ -107,7 +143,10 @@ def save_to_csv(records: list[dict], path: str) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["uri","handle","text","createdAt","lang","record"],
+            fieldnames=[
+                "uri","handle","text","createdAt","lang",
+                "pred_label","fake_score","record"
+            ],
             delimiter="|",
             quotechar='"',
             quoting=csv.QUOTE_ALL
@@ -123,7 +162,8 @@ def save_to_csv(records: list[dict], path: str) -> None:
 def main():
     # 1) Authentification
     token = create_session()
-    if not token: return
+    if not token:
+        return
 
     # 2) Récupération paginée
     raw_items = get_author_feed(token, ACTOR, MAX_TWEETS)
@@ -142,19 +182,30 @@ def main():
     # 5) Nettoyage + filtrage (fr/en)
     clean_tweets = []
     for t in raw_tweets:
-        ct = clean_text_spacy(t["text"])
-        lang = detect_language(ct)
+        clean = clean_text_spacy(t["text"])
+        lang  = detect_language(clean)
         if lang in ("fr","en"):
-            clean_tweets.append({ **t, "text": ct, "lang": lang })
+            rec = {
+                **t,
+                "text": clean,
+                "lang": lang
+            }
+            # 6) Classification
+            pred, score = classify_text(clean)
+            rec["pred_label"] = pred
+            rec["fake_score"] = score
+            clean_tweets.append(rec)
+
     print(f"🔎 Tweets filtrés (fr/en): {len(clean_tweets)}")
 
-    # 6) Sauvegarde nettoyée
+    # 7) Sauvegarde nettoyée + prédictions
     save_to_csv(clean_tweets, CLEAN_CSV_PATH)
-    print(f"✅ {len(clean_tweets)} tweets propres sauvegardés → {CLEAN_CSV_PATH}")
+    print(f"✅ {len(clean_tweets)} tweets validés et classifiés → {CLEAN_CSV_PATH}")
 
-    # 7) Aperçu
+    # 8) Aperçu
     for t in clean_tweets:
-        print(f"({t['handle']}) {t['createdAt']} [{t['lang']}] : {t['text']}\n")
+        label = "FAKE" if t["pred_label"] == 1 else "TRUE"
+        print(f"({t['handle']}) {t['createdAt']} [{t['lang']}] {label}({t['fake_score']:.2f}) : {t['text']}\n")
 
 if __name__ == "__main__":
     main()
