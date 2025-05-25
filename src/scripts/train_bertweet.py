@@ -14,8 +14,8 @@ import torch
 # Chemins d’accès (adaptés à ton arborescence)
 # ------------------------------------------------------------------------------
 PROJECT_ROOT    = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-FACT_TABLE_PATH = os.path.join(PROJECT_ROOT, "src", "data", "processed", "fact_table.csv")
-OUTPUT_DIR      = os.path.join(PROJECT_ROOT, "models", "bertweet-fake-news")
+FACT_TABLE_PATH = os.path.join(PROJECT_ROOT, "src", "data", "fact_table.csv")
+OUTPUT_DIR      = os.path.join(PROJECT_ROOT, "src", "models", "bertweet-fake-news")
 
 def main():
     # 1) Charger la table de faits

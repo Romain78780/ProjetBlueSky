@@ -1,3 +1,5 @@
+# src/scripts/build_fact_table.py
+
 import os
 import re
 import csv
@@ -21,8 +23,6 @@ STOPWORDS_EN = set(stopwords.words("english"))
 # -------------------------------------------------------------------
 # Pipeline pour la détection des émotions (English only)
 # -------------------------------------------------------------------
-# Remarque : ce modèle renvoie une émotion parmi :
-# 'anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surprise'
 emotion_pipeline = pipeline(
     "text-classification",
     model="j-hartmann/emotion-english-distilroberta-base",
@@ -30,10 +30,6 @@ emotion_pipeline = pipeline(
 )
 
 def detect_emotion(text: str) -> tuple[str, float]:
-    """
-    Détecte l'émotion dominante et sa confiance.
-    Tronque le texte à 512 caractères pour le modèle.
-    """
     snippet = text[:512]
     res = emotion_pipeline(snippet)[0]
     return res["label"], res["score"]
@@ -60,7 +56,14 @@ def extract_features(text: str) -> dict:
 # -------------------------------------------------------------------
 # Construction de la table de faits à partir de LIAR
 # -------------------------------------------------------------------
-def build_fact_table(output_path="data/processed/fact_table.csv"):
+def build_fact_table():
+    # --- on calcule le chemin absolu vers src/data/fact_table.csv ---
+    script_dir = os.path.dirname(__file__)                        # .../src/scripts
+    src_dir    = os.path.abspath(os.path.join(script_dir, ".."))  # .../src
+    data_dir   = os.path.join(src_dir, "data")                    # .../src/data
+    os.makedirs(data_dir, exist_ok=True)
+    output_path = os.path.join(data_dir, "fact_table.csv")
+
     print("🔄 Chargement du dataset LIAR (trust_remote_code=True)…")
     ds = load_dataset("liar", trust_remote_code=True)
 
@@ -82,17 +85,13 @@ def build_fact_table(output_path="data/processed/fact_table.csv"):
     feats = df["text"].apply(extract_features).apply(pd.Series)
     df = pd.concat([df, feats], axis=1)
 
-    # 4) Sentiment (étoiles) – optionnel, si tu veux garder aussi
-    # ... ici on omet ou tu peux réutiliser ton code existant ...
-
-    # 5) Émotions
+    # 4) Émotions
     print("🔄 Détection des émotions (peut prendre du temps)…")
     emotions = df["text"].apply(detect_emotion).apply(pd.Series)
     emotions.columns = ["emotion_label","emotion_score"]
     df = pd.concat([df, emotions], axis=1)
 
-    # 6) Sauvegarde CSV avec '|' et QUOTE_ALL
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # 5) Sauvegarde CSV avec '|' et QUOTE_ALL
     cols = [
         "text",
         "label_str",

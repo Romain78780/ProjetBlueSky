@@ -23,7 +23,7 @@ import joblib
 # Chemins
 # -------------------------------------------------------------------
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-FACT_PATH    = os.path.join(PROJECT_ROOT, "src", "data", "processed", "fact_table.csv")
+FACT_PATH    = os.path.join(PROJECT_ROOT, "src", "data", "fact_table.csv")
 MODEL_OUT    = os.path.join(PROJECT_ROOT, "src", "models", "fake_news_clf_calibrated.pkl")
 
 # -------------------------------------------------------------------

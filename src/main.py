@@ -16,19 +16,19 @@ from api.search         import search_posts, extract_search_tweets
 # -------------------------------------------------------------------
 # CONFIGURATION
 # -------------------------------------------------------------------
-# Ces deux variables peuvent rester vides si vous utilisez .env
-HANDLE_OR_EMAIL = None
-PASSWORD        = None
+HANDLE_OR_EMAIL = None      # ou ton handle/.env
+PASSWORD        = None      # ou ton mot de passe/.env
 
-QUERY        = "politics"      # mot-clé à adapter
+QUERY        = "politics"
 MAX_POSTS    = 2000
 PAGE_LIMIT   = 100
 
+# PROJECT_ROOT pointe sur ProjetBlueSky/
 PROJECT_ROOT   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 RAW_CSV_PATH   = os.path.join(PROJECT_ROOT, "data", "processed", "tweets_all.csv")
 CLEAN_CSV_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "tweets_clean.csv")
 
-DetectorFactory.seed = 0  # pour la reproductibilité
+DetectorFactory.seed = 0
 
 # -------------------------------------------------------------------
 # SpaCy pour lemmatisation
@@ -60,15 +60,21 @@ def detect_language(text: str) -> str:
         return "unknown"
 
 # -------------------------------------------------------------------
-# Chargement du modèle BERTweet fine-tuné
+# Chargement du modèle BERTweet fine-tuné (local)
 # -------------------------------------------------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# **Ceci** est le bon chemin :
+MODEL_DIR = os.path.join(PROJECT_ROOT, "src", "models", "bertweet-fake-news")
+
 TOKENIZER = AutoTokenizer.from_pretrained(
-    os.path.join(PROJECT_ROOT, "models", "bertweet-fake-news"),
-    use_fast=True
+    MODEL_DIR,
+    use_fast=True,
+    local_files_only=True,
 )
 MODEL = AutoModelForSequenceClassification.from_pretrained(
-    os.path.join(PROJECT_ROOT, "models", "bertweet-fake-news")
+    MODEL_DIR,
+    local_files_only=True,
 ).to(DEVICE)
 MODEL.eval()
 
@@ -87,7 +93,7 @@ def classify_text(text: str) -> tuple[int, float]:
     ).to(DEVICE)
     with torch.no_grad():
         logits = MODEL(**inputs).logits
-        probs  = torch.softmax(logits, dim=-1).cpu().squeeze().tolist()
+        probs = torch.softmax(logits, dim=-1).cpu().squeeze().tolist()
     # probs = [p_true, p_fake]
     return int(probs[1] > probs[0]), float(probs[1])
 
@@ -100,8 +106,8 @@ def save_to_csv(records: list[dict], path: str) -> None:
         writer = csv.DictWriter(
             f,
             fieldnames=[
-                "uri","handle","text","createdAt","lang",
-                "pred_label","fake_score","record"
+                "uri", "handle", "text", "createdAt", "lang",
+                "pred_label", "fake_score", "record"
             ],
             delimiter="|",
             quotechar='"',
@@ -116,31 +122,31 @@ def save_to_csv(records: list[dict], path: str) -> None:
 # MAIN
 # -------------------------------------------------------------------
 def main():
-    # 1) Authentification
+    # 1) Authent
     token = create_session(HANDLE_OR_EMAIL, PASSWORD)
     if not token:
         return
 
-    # 2) Recherche par mot-clé + pagination
+    # 2) Recherche + pagination
     raw_posts = search_posts(token, QUERY, MAX_POSTS, PAGE_LIMIT)
     print(f"🔄 Total récupéré : {len(raw_posts)} posts")
 
-    # 3) Extraction des tweets
+    # 3) Extraction
     raw_tweets = extract_search_tweets(raw_posts)
     print(f"📝 Tweets extraits : {len(raw_tweets)}")
 
-    # 4) Détection de la langue + sauvegarde "brute"
+    # 4) Langue + CSV brut
     for t in raw_tweets:
         t["lang"] = detect_language(t["text"])
     save_to_csv(raw_tweets, RAW_CSV_PATH)
     print(f"✅ {len(raw_tweets)} tweets bruts → {RAW_CSV_PATH}")
 
-    # 5) Nettoyage, filtrage FR/EN et classification
+    # 5) Clean, filtre (fr/en), classe
     clean_tweets = []
     for t in raw_tweets:
-        ct = clean_text_spacy(t["text"])
+        ct   = clean_text_spacy(t["text"])
         lang = detect_language(ct)
-        if lang in ("fr", "en"):
+        if lang in ("fr","en"):
             pred, score = classify_text(ct)
             clean_tweets.append({
                 **t,
@@ -149,9 +155,9 @@ def main():
                 "pred_label": pred,
                 "fake_score": score
             })
-    print(f"🔎 Tweets politiques (FR/EN) : {len(clean_tweets)}")
+    print(f"🔎 Tweets filtrés (FR/EN) : {len(clean_tweets)}")
 
-    # 6) Sauvegarde finale
+    # 6) Sauvegarde final
     save_to_csv(clean_tweets, CLEAN_CSV_PATH)
     print(f"✅ {len(clean_tweets)} tweets classifiés → {CLEAN_CSV_PATH}")
 

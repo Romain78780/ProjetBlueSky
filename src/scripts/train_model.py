@@ -11,7 +11,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 def main():
     # 1) Charger la table de faits
     df = pd.read_csv(
-        "../data/processed/fact_table.csv",
+        "../data/fact_table.csv",
         sep="|",
         quotechar='"'
     )
