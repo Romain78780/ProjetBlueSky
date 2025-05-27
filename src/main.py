@@ -23,12 +23,15 @@ QUERY        = "politics"
 MAX_POSTS    = 2000
 PAGE_LIMIT   = 100
 
-# PROJECT_ROOT pointe sur ProjetBlueSky/
+# Seuil de décision sur la probabilité P(fake)
+# – issu du script find_optimal_threshold.py
+THRESHOLD    = 0.65
+
 PROJECT_ROOT   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 RAW_CSV_PATH   = os.path.join(PROJECT_ROOT, "data", "processed", "tweets_all.csv")
 CLEAN_CSV_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "tweets_clean.csv")
 
-DetectorFactory.seed = 0
+DetectorFactory.seed = 0  # pour reproductibilité
 
 # -------------------------------------------------------------------
 # SpaCy pour lemmatisation
@@ -63,26 +66,19 @@ def detect_language(text: str) -> str:
 # Chargement du modèle BERTweet fine-tuné (local)
 # -------------------------------------------------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# **Ceci** est le bon chemin :
 MODEL_DIR = os.path.join(PROJECT_ROOT, "src", "models", "bertweet-fake-news")
 
 TOKENIZER = AutoTokenizer.from_pretrained(
-    MODEL_DIR,
-    use_fast=True,
-    local_files_only=True,
+    MODEL_DIR, use_fast=True, local_files_only=True
 )
 MODEL = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_DIR,
-    local_files_only=True,
+    MODEL_DIR, local_files_only=True
 ).to(DEVICE)
 MODEL.eval()
 
-def classify_text(text: str) -> tuple[int, float]:
+def predict_fake_score(text: str) -> float:
     """
-    Renvoie (pred_label, fake_score)
-      pred_label: 1 = fake, 0 = true
-      fake_score: P(classe fake)
+    Renvoie la probabilité P(classe 'fake') pour un texte donné.
     """
     inputs = TOKENIZER(
         text,
@@ -93,9 +89,9 @@ def classify_text(text: str) -> tuple[int, float]:
     ).to(DEVICE)
     with torch.no_grad():
         logits = MODEL(**inputs).logits
-        probs = torch.softmax(logits, dim=-1).cpu().squeeze().tolist()
-    # probs = [p_true, p_fake]
-    return int(probs[1] > probs[0]), float(probs[1])
+        probs  = torch.softmax(logits, dim=-1).cpu().squeeze().tolist()
+    # probs = [P(true), P(fake)]
+    return float(probs[1])
 
 # -------------------------------------------------------------------
 # Sauvegarde CSV
@@ -106,8 +102,8 @@ def save_to_csv(records: list[dict], path: str) -> None:
         writer = csv.DictWriter(
             f,
             fieldnames=[
-                "uri", "handle", "text", "createdAt", "lang",
-                "pred_label", "fake_score", "record"
+                "uri","handle","text","createdAt","lang",
+                "pred_label","fake_score","record"
             ],
             delimiter="|",
             quotechar='"',
@@ -122,7 +118,7 @@ def save_to_csv(records: list[dict], path: str) -> None:
 # MAIN
 # -------------------------------------------------------------------
 def main():
-    # 1) Authent
+    # 1) Authentification
     token = create_session(HANDLE_OR_EMAIL, PASSWORD)
     if not token:
         return
@@ -135,19 +131,20 @@ def main():
     raw_tweets = extract_search_tweets(raw_posts)
     print(f"📝 Tweets extraits : {len(raw_tweets)}")
 
-    # 4) Langue + CSV brut
+    # 4) Détection langue + sauvegarde brute
     for t in raw_tweets:
         t["lang"] = detect_language(t["text"])
     save_to_csv(raw_tweets, RAW_CSV_PATH)
     print(f"✅ {len(raw_tweets)} tweets bruts → {RAW_CSV_PATH}")
 
-    # 5) Clean, filtre (fr/en), classe
+    # 5) Nettoyage, filtrage (fr/en), classification à seuil fixe
     clean_tweets = []
     for t in raw_tweets:
         ct   = clean_text_spacy(t["text"])
         lang = detect_language(ct)
-        if lang in ("fr","en"):
-            pred, score = classify_text(ct)
+        if lang in ("fr", "en"):
+            score = predict_fake_score(ct)
+            pred  = 1 if score >= THRESHOLD else 0
             clean_tweets.append({
                 **t,
                 "text":       ct,
@@ -157,7 +154,7 @@ def main():
             })
     print(f"🔎 Tweets filtrés (FR/EN) : {len(clean_tweets)}")
 
-    # 6) Sauvegarde final
+    # 6) Sauvegarde finale
     save_to_csv(clean_tweets, CLEAN_CSV_PATH)
     print(f"✅ {len(clean_tweets)} tweets classifiés → {CLEAN_CSV_PATH}")
 
