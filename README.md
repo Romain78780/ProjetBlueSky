@@ -94,3 +94,7 @@ Génère :
 * data/processed/tweets_clean.csv
 
 ## Contact
+
+romain.vignard@supdevinci-edu.fr
+mehdi.zerfaoui@supdevinci-edu.fr
+mouhoub.merdas@supdevinci-edu.fr
